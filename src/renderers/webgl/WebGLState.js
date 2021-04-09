@@ -323,6 +323,9 @@ function WebGLState( gl, extensions, capabilities ) {
 	var enabledAttributes = new Uint8Array( maxVertexAttributes );
 	var attributeDivisors = new Uint8Array( maxVertexAttributes );
 
+	var uboBindings = new WeakMap();
+	var uboProgamMap = new WeakMap();
+
 	var enabledCapabilities = {};
 
 	var currentProgram = null;
@@ -937,6 +940,49 @@ function WebGLState( gl, extensions, capabilities ) {
 
 	//
 
+	function updateUBOMapping( uniformsGroup, program ) {
+
+		var mapping = uboProgamMap.get( program );
+
+		if ( mapping === undefined ) {
+
+			mapping = new WeakMap();
+
+			uboProgamMap.set( program, mapping );
+
+		}
+
+		var blockIndex = mapping.get( uniformsGroup );
+
+		if ( blockIndex === undefined ) {
+
+			blockIndex = gl.getUniformBlockIndex( program, uniformsGroup.name );
+
+			mapping.set( uniformsGroup, blockIndex );
+
+		}
+
+	}
+
+	function uniformBlockBinding( uniformsGroup, program ) {
+
+		var mapping = uboProgamMap.get( program );
+		var blockIndex = mapping.get( uniformsGroup );
+
+		if ( uboBindings.get( uniformsGroup ) !== blockIndex ) {
+
+			// bind shader specific block index to global block point
+
+			gl.uniformBlockBinding( program, blockIndex, uniformsGroup.__bindingPointIndex );
+
+			uboBindings.set( uniformsGroup, blockIndex );
+
+		}
+
+	}
+
+	//
+
 	function reset() {
 
 		for ( var i = 0; i < enabledAttributes.length; i ++ ) {
@@ -1005,6 +1051,9 @@ function WebGLState( gl, extensions, capabilities ) {
 
 		scissor: scissor,
 		viewport: viewport,
+
+		updateUBOMapping: updateUBOMapping,
+		uniformBlockBinding: uniformBlockBinding,
 
 		reset: reset
 
