@@ -69,6 +69,7 @@ function WebGLRenderer( parameters ) {
 		_preserveDrawingBuffer = parameters.preserveDrawingBuffer !== undefined ? parameters.preserveDrawingBuffer : false,
 		_powerPreference = parameters.powerPreference !== undefined ? parameters.powerPreference : 'default',
 		_failIfMajorPerformanceCaveat = parameters.failIfMajorPerformanceCaveat !== undefined ? parameters.failIfMajorPerformanceCaveat : false,
+		_forceWebVR = parameters.forceWebVR !== undefined ? parameters.forceWebVR : false;
 
 	var currentRenderList = null;
 	var currentRenderState = null;
@@ -246,6 +247,8 @@ function WebGLRenderer( parameters ) {
 
 	var utils, bindingStates;
 
+	var videoTextures;
+
 	function initGLContext() {
 
 		extensions = new WebGLExtensions( _gl );
@@ -293,6 +296,8 @@ function WebGLRenderer( parameters ) {
 
 		info.programs = programCache.programs;
 
+		videoTextures = [];
+
 		_this.capabilities = capabilities;
 		_this.extensions = extensions;
 		_this.properties = properties;
@@ -306,7 +311,8 @@ function WebGLRenderer( parameters ) {
 
 	// vr
 
-	var vr = ( typeof navigator !== 'undefined' && 'xr' in navigator ) ? new WebXRManager( _this, _gl ) : new WebVRManager( _this );
+	var vr = ( ! _forceWebVR && typeof navigator !== 'undefined' && 'xr' in navigator && navigator.xr ) ?
+		new WebXRManager( _this, _gl ) : new WebVRManager( _this );
 
 	this.vr = vr;
 
@@ -861,6 +867,57 @@ function WebGLRenderer( parameters ) {
 
 	};
 
+	this.compileAndUploadMaterials = function ( scene, camera ) {
+
+		currentRenderState = renderStates.get( scene, camera );
+		currentRenderState.init();
+
+		scene.traverse( function ( object ) {
+
+			if ( object.isLight ) {
+
+				currentRenderState.pushLight( object );
+
+			}
+
+			if ( object.castShadow ) {
+
+				currentRenderState.pushShadow( object );
+
+			}
+
+		} );
+
+		currentRenderState.setupLights( camera );
+
+		scene.traverse( function ( object ) {
+
+			if ( object.material ) {
+
+				if ( Array.isArray( object.material ) ) {
+
+					for ( var i = 0; i < object.material.length; i ++ ) {
+
+						state.setMaterial( object.material[ i ] );
+						setProgram( camera, scene.fog, object.material[ i ], object );
+
+					}
+
+				} else {
+
+					state.setMaterial( object.material );
+					setProgram( camera, scene.fog, object.material, object );
+
+				}
+
+			}
+
+		} );
+
+		currentRenderState = null;
+
+	};
+
 	// Compile
 
 	this.compile = function ( scene, camera ) {
@@ -923,6 +980,7 @@ function WebGLRenderer( parameters ) {
 
 	var animation = new WebGLAnimation();
 	animation.setAnimationLoop( onAnimationFrame );
+	this.animation = animation;
 
 	if ( typeof window !== 'undefined' ) animation.setContext( window );
 
@@ -937,11 +995,11 @@ function WebGLRenderer( parameters ) {
 
 	// Rendering
 
-	this.render = function ( scene, camera ) {
+	this.render = function ( scene, camera, renderTarget, forceClear ) {
 
 		var renderTarget, forceClear;
 
-		if ( arguments[ 2 ] !== undefined ) {
+		/*if ( arguments[ 2 ] !== undefined ) {
 
 			console.warn( 'THREE.WebGLRenderer.render(): the renderTarget argument has been removed. Use .setRenderTarget() instead.' );
 			renderTarget = arguments[ 2 ];
@@ -953,7 +1011,7 @@ function WebGLRenderer( parameters ) {
 			console.warn( 'THREE.WebGLRenderer.render(): the forceClear argument has been removed. Use .clear() instead.' );
 			forceClear = arguments[ 3 ];
 
-		}
+		}*/
 
 		if ( ! ( camera && camera.isCamera ) ) {
 
@@ -1000,6 +1058,8 @@ function WebGLRenderer( parameters ) {
 		currentRenderList = renderLists.get( scene, camera );
 		currentRenderList.init();
 
+		videoTextures.length = 0;
+
 		projectObject( scene, camera, 0, _this.sortObjects );
 
 		if ( _this.sortObjects === true ) {
@@ -1027,6 +1087,17 @@ function WebGLRenderer( parameters ) {
 		if ( renderTarget !== undefined ) {
 
 			this.setRenderTarget( renderTarget );
+
+		}
+
+		// Pre-upload all video textures on Oculus Browser
+		if ( parameters.preuploadVideos ) {
+
+			for ( var i = 0, l = videoTextures.length; i < l; i ++ ) {
+
+				textures.setTexture2D( videoTextures[ i ], 0 );
+
+			}
 
 		}
 
@@ -1213,6 +1284,12 @@ function WebGLRenderer( parameters ) {
 						}
 
 					} else if ( material.visible ) {
+
+						if ( parameters.preuploadVideos && material.map && material.map.isVideoTexture ) {
+
+							videoTextures.push( material.map );
+
+						}
 
 						currentRenderList.push( object, geometry, material, groupOrder, _vector3.z, null );
 

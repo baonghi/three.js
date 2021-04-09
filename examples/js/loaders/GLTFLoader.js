@@ -14,6 +14,7 @@ THREE.GLTFLoader = ( function () {
 
 		this.dracoLoader = null;
 		this.ktx2loader = null;
+		this.revokeObjectURLs = true;
 		this.ddsLoader = null;
 
 	}
@@ -267,7 +268,8 @@ THREE.GLTFLoader = ( function () {
 
 				path: path || this.resourcePath || '',
 				crossOrigin: this.crossOrigin,
-				manager: this.manager
+				manager: this.manager,
+				revokeObjectURLs: this.revokeObjectURLs
 
 			} );
 
@@ -1519,7 +1521,9 @@ THREE.GLTFLoader = ( function () {
 
 		this.json = json || {};
 		this.extensions = extensions || {};
-		this.options = options || {}
+		this.options = options || {
+			revokeObjectURLs: true
+		};
 
 		// loader object cache
 		this.cache = new GLTFRegistry();
@@ -1576,6 +1580,8 @@ THREE.GLTFLoader = ( function () {
 			assignExtrasToUserData( result, json );
 
 			onLoad( result );
+
+			parser.cache.removeAll();
 
 		} ).catch( onError );
 
@@ -2030,7 +2036,7 @@ THREE.GLTFLoader = ( function () {
 
 			// Clean up resources and configure Texture.
 
-			if ( isObjectURL === true ) {
+			if ( isObjectURL === true && options.revokeObjectURLs ) {
 
 				URL.revokeObjectURL( sourceURI );
 
@@ -2209,8 +2215,7 @@ THREE.GLTFLoader = ( function () {
 
 		if ( material.aoMap && geometry.attributes.uv2 === undefined && geometry.attributes.uv !== undefined ) {
 
-			console.log( 'THREE.GLTFLoader: Duplicating UVs to support aoMap.' );
-			geometry.setAttribute( 'uv2', new THREE.BufferAttribute( geometry.attributes.uv.array, 2 ) );
+			geometry.setAttribute( 'uv2', geometry.attributes.uv );
 
 		}
 
@@ -2376,6 +2381,9 @@ THREE.GLTFLoader = ( function () {
 			if ( material.map ) material.map.encoding = THREE.sRGBEncoding;
 			if ( material.emissiveMap ) material.emissiveMap.encoding = THREE.sRGBEncoding;
 			if ( material.specularMap ) material.specularMap.encoding = THREE.sRGBEncoding;
+
+			// We cannot assume the texture pixel format is RGB if the texture is used for base color and emissive maps
+			if ( material.map && material.map === material.emissiveMap && ( material.transparent || material.alphaTest > 0.0 ) ) material.map.format = THREE.RGBAFormat;
 
 			assignExtrasToUserData( material, materialDef );
 
@@ -2867,8 +2875,6 @@ THREE.GLTFLoader = ( function () {
 
 				}
 
-				var targetName = node.name ? node.name : node.uuid;
-
 				var interpolation = sampler.interpolation !== undefined ? INTERPOLATION[ sampler.interpolation ] : THREE.InterpolateLinear;
 
 				var targetNames = [];
@@ -2880,7 +2886,7 @@ THREE.GLTFLoader = ( function () {
 
 						if ( object.isMesh === true && object.morphTargetInfluences ) {
 
-							targetNames.push( object.name ? object.name : object.uuid );
+							targetNames.push( object.uuid );
 
 						}
 
@@ -2888,7 +2894,7 @@ THREE.GLTFLoader = ( function () {
 
 				} else {
 
-					targetNames.push( targetName );
+					targetNames.push( node.uuid );
 
 				}
 
